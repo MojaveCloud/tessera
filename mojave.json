@@ -1,0 +1,8 @@
+{
+  "kind": "service",
+  "start": "node server.js",
+  "port": 3000,
+  "node": "24",
+  "vcpus": 1,
+  "memMiB": 256
+}
