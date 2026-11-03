@@ -6,7 +6,7 @@ Tessera renders one 3840 × 3840 view of the Mandelbrot set (Seahorse Valley) as
 Every tile is a separate job task, and each task runs in its own microVM. The app page shows the
 mosaic filling in as tiles arrive.
 
-- `server.js` is the app. It takes tile uploads and streams them to the page.
+- `server.js` is the app. It starts renders, takes tile uploads and streams them to the page.
 - `render.js` is the task. It renders tile `$MOJAVE_TASK_INDEX` and uploads it.
 - `scene.js` sets the view, tile size and quality.
 
@@ -14,12 +14,26 @@ mosaic filling in as tiles arrive.
 
 ```sh
 mojave deploy --repo MojaveCloud/tessera
-mojave env set tessera TILE_KEY=$(openssl rand -hex 16)
-mojave env set --plain tessera TESSERA_URL=https://tessera.mojavedev.sh   # your project's URL
-mojave jobs run --tasks 64 tessera -- node render.js
 ```
 
-On one core the whole image takes about a minute. As 64 tasks it takes a few seconds.
+Open the URL it prints and click **Render**. The app starts a 64-task job with the token Mojave gives
+every production deployment, and passes each task the upload URL and a one-time key. The first
+render waits about 2 minutes for machines to start. After that a render takes under 10 seconds,
+where one core takes about a minute.
+
+The page is public, so it runs one render at a time and waits 30 seconds between starts.
+
+### From the CLI
+
+To start renders with `mojave jobs run` instead, give the tasks the app's URL and a shared key, then
+redeploy so the app reads the key:
+
+```sh
+mojave env set <project> TILE_KEY=$(openssl rand -hex 16)
+mojave env set --plain <project> TESSERA_URL=https://<project>.mojavedev.sh
+mojave deploy --repo MojaveCloud/tessera
+mojave jobs run --tasks 64 <project> -- node render.js
+```
 
 Locally, `node render.js` with `MOJAVE_TASK_INDEX=0` writes `tile-0.png` instead of uploading.
 
