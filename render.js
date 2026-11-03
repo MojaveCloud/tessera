@@ -4,7 +4,11 @@ import { GRID, TILE, SAMPLES, MAX_ITER, CENTER, SPAN } from "./scene.js";
 
 const index = Number(process.env.MOJAVE_TASK_INDEX ?? 0);
 const job = process.env.MOJAVE_JOB_ID ?? "local";
-const appURL = process.env.TESSERA_URL;
+// A render started from the app's page passes its URL and a key as each
+// task's input; one started from the CLI reads them from the project env.
+const given = process.env.MOJAVE_TASK_INPUT ? JSON.parse(process.env.MOJAVE_TASK_INPUT) : {};
+const appURL = given.url ?? process.env.TESSERA_URL;
+const tileKey = given.key ?? process.env.TILE_KEY ?? "";
 const col = index % GRID;
 const row = Math.floor(index / GRID);
 
@@ -16,7 +20,7 @@ const ms = Math.round(performance.now() - started);
 if (appURL) {
   const res = await fetch(`${appURL}/tiles/${job}/${index}`, {
     method: "POST",
-    headers: { "content-type": "image/png", "x-tile-key": process.env.TILE_KEY ?? "", "x-render-ms": String(ms) },
+    headers: { "content-type": "image/png", "x-tile-key": tileKey, "x-render-ms": String(ms) },
     body: png,
   });
   if (!res.ok) throw new Error(`upload failed: ${res.status} ${await res.text()}`);
