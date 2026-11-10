@@ -9,7 +9,8 @@ export const TUNNEL = {
   CHORD: 70,
   U0: 0.1, // inflow speed, lattice units
   RE: 600, // Reynolds number on the chord
-  FRAME_MS: 2000,
+  CX: 0.22, // the quarter chord sits this far along the tunnel, mid-height
+  FRAME_MS: 600,
 };
 
 export function design(i) {
@@ -21,4 +22,27 @@ export function design(i) {
     p: Number(name[1]) / 10,
     t: Number(name.slice(2)) / 100,
   };
+}
+
+// NACA 4-digit: camber line and half thickness at x (fraction of chord).
+export function naca({ m, p, t }, x) {
+  const yt = 5 * t * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4);
+  let yc = 0;
+  if (m > 0) yc = x < p ? (m / (p * p)) * (2 * p * x - x * x) : (m / ((1 - p) ** 2)) * (1 - 2 * p + 2 * p * x - x * x);
+  return [yc, yt];
+}
+
+// The airfoil's outline in lattice cells (x right, y down), for drawing it.
+export function outline(i, steps = 60) {
+  const d = design(i);
+  const { W, H, CHORD, CX } = TUNNEL;
+  const a = (d.angle * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+  const pt = (xr, yr) => {
+    const u = CHORD * (xr - 0.25), v = CHORD * yr;
+    return [W * CX + ca * u + sa * v, H / 2 - (-sa * u + ca * v)];
+  };
+  const xs = Array.from({ length: steps + 1 }, (_, k) => (1 - Math.cos((Math.PI * k) / steps)) / 2);
+  const upper = xs.map((x) => { const [yc, yt] = naca(d, x); return pt(x, yc + yt); });
+  const lower = xs.map((x) => { const [yc, yt] = naca(d, x); return pt(x, yc - yt); }).reverse();
+  return [...upper, ...lower];
 }

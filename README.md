@@ -52,8 +52,10 @@ The argument is the budget in minutes; a task may run for up to 3 hours.
 
 `tunnel.js` is a design sweep: 64 wings (8 NACA airfoils × 8 angles of attack), each a 2D lattice
 Boltzmann flow simulation in its own task. Every task runs for its time budget, averages lift and
-drag once the flow settles, and uploads a vorticity frame every 2 seconds. Open `/tunnel` to watch
-the sweep, with stalled wings shedding vortices and a live lift-to-drag ranking. Same setup as the
+drag once the flow settles, and uploads a vorticity frame a few times a second. Open `/tunnel` to watch
+the sweep, with stalled wings shedding vortices and a live lift-to-drag ranking. Every 20 seconds
+the page zooms into one tunnel: the leader, a stalled wing or a random design (`?spot=0` turns
+that off). Same setup as the
 long exposure:
 
 ```sh

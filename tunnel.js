@@ -6,11 +6,11 @@
 // (column) from tunnel-designs.js. The flow is a 2D lattice Boltzmann
 // simulation (D2Q9, BGK). The task runs for its whole budget, averaging lift
 // and drag once the flow has settled, and uploads a frame of the vorticity
-// field every 2 seconds.
+// field a few times a second.
 import { deflateSync, crc32 } from "node:zlib";
-import { design, TUNNEL } from "./tunnel-designs.js";
+import { design, naca, TUNNEL } from "./tunnel-designs.js";
 
-const { W, H, CHORD, U0, RE, FRAME_MS } = TUNNEL;
+const { W, H, CHORD, U0, RE, CX, FRAME_MS } = TUNNEL;
 const minutes = Number(process.argv[2] ?? process.env.TUNNEL_MINUTES ?? 120);
 const index = Number(process.env.MOJAVE_TASK_INDEX ?? 0);
 const job = process.env.MOJAVE_JOB_ID ?? "local";
@@ -47,7 +47,7 @@ function feq(i, r, u, v) {
 // The airfoil, rotated about its quarter chord, in the left third of the tunnel.
 function airfoilMask() {
   const m = new Uint8Array(N);
-  const cx = W * 0.22, cy = H / 2;
+  const cx = W * CX, cy = H / 2;
   const a = (d.angle * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
   for (let j = 0; j < H; j++) {
     for (let x = 0; x < W; x++) {
@@ -57,20 +57,11 @@ function airfoilMask() {
       const xr = (px * ca - py * sa) / CHORD + 0.25;
       const yr = (px * sa + py * ca) / CHORD;
       if (xr < 0 || xr > 1) continue;
-      const [yc, yt] = naca(xr);
+      const [yc, yt] = naca(d, xr);
       if (Math.abs(yr - yc) <= yt) m[j * W + x] = 1;
     }
   }
   return m;
-}
-
-// NACA 4-digit: camber line and half thickness at x (fraction of chord).
-function naca(x) {
-  const { m, p, t } = d;
-  const yt = 5 * t * (0.2969 * Math.sqrt(x) - 0.126 * x - 0.3516 * x * x + 0.2843 * x ** 3 - 0.1036 * x ** 4);
-  let yc = 0;
-  if (m > 0) yc = x < p ? (m / (p * p)) * (2 * p * x - x * x) : (m / ((1 - p) ** 2)) * (1 - 2 * p + 2 * p * x - x * x);
-  return [yc, yt];
 }
 
 // One step: collide, then stream with bounce-back on the airfoil.
@@ -120,10 +111,15 @@ function step() {
 const settle = Math.round((2 * W) / U0);
 const q = 0.5 * U0 * U0 * CHORD;
 let steps = 0, sumL = 0, sumD = 0, avgN = 0, lastFrame = 0, cl = 0, cd = 0;
+// How much the lift swings around its mean: vortex shedding makes it oscillate.
+let liftMean = 0, liftVar = 0;
 
 while (Date.now() < deadline) {
   const [fx, fy] = step();
   steps++;
+  const inst = -fy / q;
+  liftMean += 0.002 * (inst - liftMean);
+  liftVar += 0.002 * ((inst - liftMean) ** 2 - liftVar);
   if (steps > settle) {
     sumD += fx; sumL += -fy; avgN++;
     cl = sumL / avgN / q; cd = sumD / avgN / q;
@@ -134,7 +130,7 @@ while (Date.now() < deadline) {
   if (!Number.isFinite(cl)) throw new Error(`simulation diverged at step ${steps}`);
 }
 await upload(true);
-console.log(`design ${index} NACA ${d.name} at ${d.angle}°: CL ${cl.toFixed(3)}, CD ${cd.toFixed(3)}, L/D ${(cl / cd).toFixed(2)}, ${steps} steps in ${((Date.now() - started) / 60000).toFixed(1)} min`);
+console.log(`design ${index} NACA ${d.name} at ${d.angle}°: CL ${cl.toFixed(3)}, CD ${cd.toFixed(3)}, L/D ${(cl / cd).toFixed(2)}, swing ${Math.sqrt(liftVar).toFixed(3)}, ${steps} steps in ${((Date.now() - started) / 60000).toFixed(1)} min`);
 
 // The frame: vorticity, cyan one way and orange the other, the wing in white.
 function frame() {
@@ -168,7 +164,7 @@ async function upload(done) {
     return;
   }
   const meta = {
-    name: d.name, angle: d.angle, cl, cd, settled: steps > settle, steps,
+    name: d.name, angle: d.angle, cl, cd, settled: steps > settle, steps, swing: Math.sqrt(Math.max(0, liftVar)),
     started, deadline, done,
   };
   try {
