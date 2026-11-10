@@ -48,6 +48,18 @@ mojave jobs run --tasks 64 --vcpus 1 --mem 512 --timeout 10800 --detach <project
 
 The argument is the budget in minutes; a task may run for up to 3 hours.
 
+## Wind tunnel
+
+`tunnel.js` is a design sweep: 64 wings (8 NACA airfoils × 8 angles of attack), each a 2D lattice
+Boltzmann flow simulation in its own task. Every task runs for its time budget, averages lift and
+drag once the flow settles, and uploads a vorticity frame every 2 seconds. Open `/tunnel` to watch
+the sweep, with stalled wings shedding vortices and a live lift-to-drag ranking. Same setup as the
+long exposure:
+
+```sh
+mojave jobs run --tasks 64 --vcpus 1 --mem 512 --timeout 10800 --detach <project> -- node tunnel.js 170
+```
+
 Locally, `node render.js` with `MOJAVE_TASK_INDEX=0` writes `tile-0.png` instead of uploading.
 
 MIT licensed.

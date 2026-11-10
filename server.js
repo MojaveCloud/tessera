@@ -8,6 +8,8 @@ import { GRID, TILE } from "./scene.js";
 const port = Number(process.env.PORT ?? 3000);
 const page = readFileSync(new URL("./index.html", import.meta.url));
 const longPage = readFileSync(new URL("./long.html", import.meta.url));
+const tunnelPage = readFileSync(new URL("./tunnel.html", import.meta.url));
+const tunnelDesigns = readFileSync(new URL("./tunnel-designs.js", import.meta.url));
 
 // Mojave gives a production deployment a token that starts jobs in its own
 // project. Without it (local, or jobs off) only the CLI starts renders.
@@ -32,6 +34,10 @@ const watchers = new Set();
 // Each task re-sends its whole tile preview, so a restart refills within a minute.
 let long = { job: "", started: 0, tiles: new Map() };
 const LONG_TILES = 64;
+// The wind-tunnel sweep: same shape, a frame and the design's numbers per task.
+let tunnel = { job: "", started: 0, tiles: new Map() };
+const TUNNEL_TILES = 64;
+
 const longMeta = (index, t) => ({ index, rows: t.rows, of: t.of, samples: t.samples, started: t.started, deadline: t.deadline, done: t.done, at: t.at });
 
 function send(res, status, body, type = "text/plain") {
@@ -97,9 +103,46 @@ async function watch(id) {
 createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   const tile = url.pathname.match(/^\/tiles\/([\w-]+)\/(\d+)(\.png)?$/);
+  const tunnelTile = url.pathname.match(/^\/tunnel\/([\w-]+)\/(\d+)(\.png)?$/);
   const longTile = url.pathname.match(/^\/long\/([\w-]+)\/(\d+)(\.png)?$/);
 
   if (req.method === "GET" && url.pathname === "/") return send(res, 200, page, "text/html; charset=utf-8");
+  if (req.method === "GET" && url.pathname === "/tunnel-designs.js") return send(res, 200, tunnelDesigns, "text/javascript");
+  if (req.method === "GET" && url.pathname === "/tunnel") return send(res, 200, tunnelPage, "text/html; charset=utf-8");
+  if (req.method === "GET" && url.pathname === "/tunnel/state") {
+    return send(res, 200, JSON.stringify({
+      job: tunnel.job, now: Date.now(), tiles: [...tunnel.tiles].map(([index, t]) => ({ index, ...t.meta, at: t.at })),
+    }), "application/json");
+  }
+  if (req.method === "GET" && tunnelTile) {
+    const t = tunnelTile[1] === tunnel.job && tunnel.tiles.get(Number(tunnelTile[2]));
+    return t ? send(res, 200, t.png, "image/png") : send(res, 404, "no such frame");
+  }
+  if (req.method === "POST" && tunnelTile) {
+    const given = req.headers["x-tile-key"] ?? "";
+    if (!cliKey || given !== cliKey) return send(res, 403, "bad tile key");
+    const index = Number(tunnelTile[2]);
+    if (index >= TUNNEL_TILES) return send(res, 400, "index out of range");
+    let meta;
+    try { meta = JSON.parse(req.headers["x-meta"] ?? "{}"); } catch { return send(res, 400, "bad x-meta"); }
+    const chunks = [];
+    let size = 0;
+    for await (const c of req) {
+      size += c.length;
+      if (size > 1 << 20) return send(res, 413, "frame too large");
+      chunks.push(c);
+    }
+    const started = Number(meta.started ?? 0);
+    if (tunnel.job !== tunnelTile[1]) {
+      if (tunnel.job && started < tunnel.started) return send(res, 409, "a newer sweep is running");
+      tunnel = { job: tunnelTile[1], started, tiles: new Map() };
+      broadcast({ type: "tunnel-job", job: tunnel.job });
+    }
+    const at = Date.now();
+    tunnel.tiles.set(index, { png: Buffer.concat(chunks), meta, at });
+    broadcast({ type: "tunnel", job: tunnel.job, index, ...meta, at });
+    return send(res, 201, "stored");
+  }
   if (req.method === "GET" && url.pathname === "/long") return send(res, 200, longPage, "text/html; charset=utf-8");
   if (req.method === "GET" && url.pathname === "/long/state") {
     return send(res, 200, JSON.stringify({
