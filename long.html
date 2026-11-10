@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tessera · long exposure</title>
+<style>
+  :root { --bg: #07070c; --ink: #ecebf3; --dim: #8a879e; --faint: #4a4860; --line: #1d1c2a; --hot: #ffb547; --cold: #6fa8ff; --lam: #ff6b5b; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--ink); font: 16px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  .wrap { height: 100vh; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: clamp(20px, 3vw, 56px); padding: clamp(16px, 2.4vw, 40px); align-items: center; }
+  #grid { height: calc(100vh - 2 * clamp(16px, 2.4vw, 40px)); max-width: 58vw; aspect-ratio: 1; display: grid; grid-template-columns: repeat(8, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .cell { position: relative; background: #0b0a14; overflow: hidden; }
+  .cell img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .cell .scan { position: absolute; left: 0; right: 0; height: 2px; background: var(--hot); box-shadow: 0 0 10px 2px rgba(255, 181, 71, .55); opacity: .9; transition: top 1.2s linear; }
+  .cell.done .scan, .cell.idle .scan { display: none; }
+  .cell.stale { outline: 1px solid rgba(255, 107, 91, .5); outline-offset: -1px; }
+  aside { min-width: 0; display: flex; flex-direction: column; gap: clamp(18px, 2.6vh, 34px); }
+  .eyebrow { font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; gap: 10px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); }
+  .live .dot { background: #4ade80; box-shadow: 0 0 0 0 rgba(74, 222, 128, .6); animation: pulse 1.8s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 9px rgba(74, 222, 128, 0); } 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); } }
+  h1 { font-size: clamp(26px, 2.9vw, 52px); line-height: 1.08; letter-spacing: -.02em; font-weight: 700; }
+  h1 em { font-style: normal; color: var(--hot); }
+  .clock { font: 700 clamp(56px, 7.4vw, 136px)/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+  .clock-label { color: var(--dim); font-size: clamp(14px, 1.1vw, 18px); margin-top: 8px; }
+  .track { position: relative; height: 14px; border-radius: 7px; background: #15141f; margin-top: 30px; }
+  .fill { position: absolute; inset: 0 auto 0 0; border-radius: 7px; background: linear-gradient(90deg, var(--cold), var(--hot)); }
+  .mark { position: absolute; top: -30px; bottom: -8px; width: 2px; background: var(--lam); }
+  .mark[hidden] { display: none; }
+  .mark span { position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); white-space: nowrap; font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--lam); padding-bottom: 4px; }
+  .ends { display: flex; justify-content: space-between; font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--dim); margin-top: 8px; }
+  .verdict { font-size: clamp(16px, 1.4vw, 24px); color: var(--ink); }
+  .verdict b { color: var(--lam); font-weight: 650; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .stat { background: var(--bg); padding: 14px 16px; }
+  .stat .v { font: 700 clamp(22px, 2.2vw, 40px)/1.1 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .stat .k { color: var(--dim); font-size: 13px; margin-top: 4px; }
+  .cmd { font: clamp(12px, .95vw, 16px)/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #101019; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; color: var(--ink); overflow-wrap: anywhere; }
+  .cmd .p { color: var(--dim); user-select: none; }
+  .cmd-label { color: var(--dim); font-size: 13px; margin-bottom: 8px; }
+  footer { color: var(--dim); font-size: 14px; }
+  footer b { color: var(--ink); font-weight: 600; }
+  @media (max-width: 900px) {
+    body { overflow: auto; }
+    .wrap { height: auto; grid-template-columns: 1fr; padding: 16px; }
+    #grid { height: auto; width: 100%; max-width: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="grid"></div>
+  <aside>
+    <div class="eyebrow" id="eyebrow"><span class="dot"></span><span id="eyebrow-text">Waiting for a run</span></div>
+    <h1 id="headline">64 machines. <em>Hours</em> each.<br>One command.</h1>
+    <div>
+      <div class="clock" id="clock">0:00:00</div>
+      <div class="clock-label" id="clock-label">each task has been running for</div>
+      <div class="track" id="track">
+        <div class="fill" id="fill" style="width:0"></div>
+        <div class="mark" id="mark"><span>Lambda’s 15-min limit</span></div>
+      </div>
+      <div class="ends"><span>start</span><span id="end-label">end</span></div>
+    </div>
+    <div class="verdict" id="verdict">A Lambda function stops at 15 minutes. These tasks don’t.</div>
+    <div class="stats">
+      <div class="stat"><div class="v" id="s-running">0</div><div class="k">tasks running, one microVM each</div></div>
+      <div class="stat"><div class="v" id="s-cpu">0</div><div class="k">CPU-hours so far</div></div>
+      <div class="stat"><div class="v" id="s-samples">0</div><div class="k">samples rendered</div></div>
+    </div>
+    <div>
+      <div class="cmd-label">What started it</div>
+      <div class="cmd" id="cmd"><span class="p">$ </span>mojave jobs run --tasks 64 --timeout 10800 tessera -- node exposure.js 150</div>
+    </div>
+    <footer>An 8192 × 8192 render of the Mandelbrot set, one tile per job task, on <b>Mojave Jobs</b> · mojave.sh</footer>
+  </aside>
+</div>
+<script>
+  const N = 64, LAMBDA = 15 * 60_000;
+  const grid = document.getElementById("grid");
+  const $ = (id) => document.getElementById(id);
+  let job = "", skew = 0; // skew: server clock minus ours
+  const tiles = new Map(); // index -> meta + seen
+
+  const cells = Array.from({ length: N }, () => {
+    const c = document.createElement("div");
+    c.className = "cell idle";
+    const img = new Image(); img.alt = "";
+    const scan = document.createElement("div"); scan.className = "scan";
+    c.append(img, scan);
+    return c;
+  });
+  grid.replaceChildren(...cells);
+
+  function reset(id) {
+    job = id; tiles.clear();
+    cells.forEach((c) => { c.className = "cell idle"; c.querySelector("img").removeAttribute("src"); });
+  }
+
+  function apply(m) {
+    tiles.set(m.index, { ...m, seen: Date.now() });
+    const c = cells[m.index];
+    const img = c.querySelector("img");
+    const next = new Image();
+    next.onload = () => { img.src = next.src; };
+    next.src = `/long/${job}/${m.index}.png?r=${m.rows}`;
+    c.querySelector(".scan").style.top = `${(m.rows / m.of) * 100}%`;
+    c.className = "cell" + (m.done ? " done" : "");
+  }
+
+  const fmt = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(s / 3600)}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+  };
+  const human = (n) => n >= 1e9 ? (n / 1e9).toFixed(2) + " B" : n >= 1e6 ? (n / 1e6).toFixed(1) + " M" : n.toLocaleString();
+  const mins = (ms) => {
+    const m = Math.round(ms / 60_000);
+    return m >= 90 ? `${(m / 60).toFixed(1)} hours` : `${m} minute${m === 1 ? "" : "s"}`;
+  };
+
+  function tick() {
+    const now = Date.now() + skew;
+    const list = [...tiles.values()];
+    const live = list.length > 0;
+    document.body.classList.toggle("live", live && list.some((t) => !t.done));
+    if (!live) { requestAnimationFrame(() => setTimeout(tick, 500)); return; }
+
+    const start = Math.min(...list.map((t) => t.started));
+    const end = Math.max(...list.map((t) => t.deadline));
+    const allDone = list.length === N && list.every((t) => t.done);
+    const lastAt = allDone ? Math.max(...list.map((t) => t.at)) : now;
+    const elapsed = Math.min(lastAt, end) - start;
+    const budget = end - start;
+
+    $("eyebrow-text").textContent = allDone ? "Run finished" : "Live · Mojave Jobs";
+    $("headline").innerHTML = `64 machines. <em>${mins(budget)}</em> each.<br>One command.`;
+    $("clock").textContent = fmt(elapsed);
+    $("clock-label").textContent = allDone ? "each task ran for" : `each task has been running for · ${fmt(end - now)} to go`;
+    $("fill").style.width = `${Math.min(100, (elapsed / budget) * 100)}%`;
+    $("mark").style.left = `${(LAMBDA / budget) * 100}%`;
+    $("mark").hidden = budget <= LAMBDA;
+    $("end-label").textContent = fmt(budget);
+    $("verdict").innerHTML = elapsed < LAMBDA
+      ? `A Lambda function stops at 15:00. <b>${fmt(LAMBDA - elapsed)}</b> until these pass it.`
+      : `A Lambda function would have been stopped <b>${mins(elapsed - LAMBDA)} ago</b>. These tasks are still going.`;
+    if (allDone) $("verdict").innerHTML = budget > LAMBDA
+      ? `Every task ran <b>${mins(budget - LAMBDA)}</b> past Lambda’s 15-minute limit.`
+      : `Every task finished.`;
+
+    // A task counts as running while its previews keep arriving.
+    let running = 0, cpu = 0, samples = 0;
+    for (const t of list) {
+      const fresh = now - t.at < 90_000 || Date.now() - t.seen < 90_000;
+      if (!t.done && fresh) running++;
+      cells[t.index].classList.toggle("stale", !t.done && !fresh);
+      cpu += Math.min(t.done ? t.at : now, t.deadline) - t.started;
+      samples += t.samples;
+    }
+    $("s-running").textContent = String(running);
+    $("s-cpu").textContent = (cpu / 3_600_000).toFixed(1);
+    $("s-samples").textContent = human(samples);
+    setTimeout(tick, 250);
+  }
+
+  // A link with ?cmd= shows the exact command that was run.
+  const cmd = new URLSearchParams(location.search).get("cmd");
+  if (cmd) $("cmd").innerHTML = `<span class="p">$ </span>` + cmd.replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch]);
+
+  function connect() {
+    fetch("/long/state").then((r) => r.json()).then((s) => {
+      skew = s.now - Date.now();
+      reset(s.job);
+      s.tiles.forEach(apply);
+      const es = new EventSource("/events");
+      es.onmessage = (e) => {
+        const ev = JSON.parse(e.data);
+        if (ev.type === "long-job") reset(ev.job);
+        if (ev.type === "long") { if (ev.job !== job) reset(ev.job); apply(ev); }
+      };
+      // A dropped stream (app restart, wifi) reloads state and reconnects.
+      es.onerror = () => { es.close(); setTimeout(connect, 3000); };
+    }).catch(() => setTimeout(connect, 3000));
+  }
+  connect();
+  tick();
+</script>
+</body>
+</html>

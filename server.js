@@ -7,6 +7,7 @@ import { GRID, TILE } from "./scene.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const page = readFileSync(new URL("./index.html", import.meta.url));
+const longPage = readFileSync(new URL("./long.html", import.meta.url));
 
 // Mojave gives a production deployment a token that starts jobs in its own
 // project. Without it (local, or jobs off) only the CLI starts renders.
@@ -26,6 +27,12 @@ let starting = false; // a /render call is creating its job
 // The newest render only: job id -> tiles by index. A restart starts empty.
 let current = { job: "", tiles: new Map(), started: 0, status: "" };
 const watchers = new Set();
+
+// The long exposure: the newest one only, started from the CLI with TILE_KEY.
+// Each task re-sends its whole tile preview, so a restart refills within a minute.
+let long = { job: "", started: 0, tiles: new Map() };
+const LONG_TILES = 64;
+const longMeta = (index, t) => ({ index, rows: t.rows, of: t.of, samples: t.samples, started: t.started, deadline: t.deadline, done: t.done, at: t.at });
 
 function send(res, status, body, type = "text/plain") {
   res.writeHead(status, { "content-type": type, "cache-control": "no-store" });
@@ -90,8 +97,47 @@ async function watch(id) {
 createServer(async (req, res) => {
   const url = new URL(req.url, "http://x");
   const tile = url.pathname.match(/^\/tiles\/([\w-]+)\/(\d+)(\.png)?$/);
+  const longTile = url.pathname.match(/^\/long\/([\w-]+)\/(\d+)(\.png)?$/);
 
   if (req.method === "GET" && url.pathname === "/") return send(res, 200, page, "text/html; charset=utf-8");
+  if (req.method === "GET" && url.pathname === "/long") return send(res, 200, longPage, "text/html; charset=utf-8");
+  if (req.method === "GET" && url.pathname === "/long/state") {
+    return send(res, 200, JSON.stringify({
+      job: long.job, now: Date.now(), tiles: [...long.tiles].map(([i, t]) => longMeta(i, t)),
+    }), "application/json");
+  }
+  if (req.method === "GET" && longTile) {
+    const t = longTile[1] === long.job && long.tiles.get(Number(longTile[2]));
+    return t ? send(res, 200, t.png, "image/png") : send(res, 404, "no such tile");
+  }
+  if (req.method === "POST" && longTile) {
+    const given = req.headers["x-tile-key"] ?? "";
+    if (!cliKey || given !== cliKey) return send(res, 403, "bad tile key");
+    const index = Number(longTile[2]);
+    if (index >= LONG_TILES) return send(res, 400, "index out of range");
+    const num = (h) => Number(req.headers[h] ?? 0);
+    const chunks = [];
+    let size = 0;
+    for await (const c of req) {
+      size += c.length;
+      if (size > 2 << 20) return send(res, 413, "preview too large");
+      chunks.push(c);
+    }
+    const started = num("x-started");
+    if (long.job !== longTile[1]) {
+      // An older exposure's straggler never replaces a newer one.
+      if (long.job && started < long.started) return send(res, 409, "a newer exposure is running");
+      long = { job: longTile[1], started, tiles: new Map() };
+      broadcast({ type: "long-job", job: long.job });
+    }
+    const t = {
+      png: Buffer.concat(chunks), rows: num("x-rows"), of: num("x-of"), samples: num("x-samples"),
+      started, deadline: num("x-deadline"), done: req.headers["x-done"] === "1", at: Date.now(),
+    };
+    long.tiles.set(index, t);
+    broadcast({ type: "long", job: long.job, ...longMeta(index, t) });
+    return send(res, 201, "stored");
+  }
   if (req.method === "GET" && url.pathname === "/healthz") return send(res, 200, "ok");
 
   if (req.method === "GET" && url.pathname === "/state") {

@@ -35,6 +35,19 @@ mojave deploy --repo MojaveCloud/tessera
 mojave jobs run --tasks 64 <project> -- node render.js
 ```
 
+## Long exposure
+
+`exposure.js` is the long-running version: an 8192 × 8192 render where each of the 64 tasks
+spends a fixed time budget on samples, uploading a preview every 20 seconds. Open `/long` to watch
+it, with a clock and a mark at Lambda's 15-minute limit. It uses the CLI setup above (`TILE_KEY`
+and `TESSERA_URL`):
+
+```sh
+mojave jobs run --tasks 64 --vcpus 1 --mem 512 --timeout 10800 --detach <project> -- node exposure.js 150
+```
+
+The argument is the budget in minutes; a task may run for up to 3 hours.
+
 Locally, `node render.js` with `MOJAVE_TASK_INDEX=0` writes `tile-0.png` instead of uploading.
 
 MIT licensed.
