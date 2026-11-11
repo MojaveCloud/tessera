@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>Tessera · wind tunnel</title>
 <style>
   :root { --bg: #05060b; --ink: #eef0f7; --dim: #8b8fa6; --faint: #3b3e52; --line: #171927; --hot: #ffa53a; --cold: #4cc9ff; --lam: #ff5d4f; --gold: #ffd166; }
@@ -46,7 +47,7 @@
 
   /* The spotlight: one tunnel, zoomed up from its tile. */
   #spot { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; pointer-events: none; }
-  #spot::before { content: ""; position: absolute; inset: -2vh -1.6vw; background: rgba(5, 6, 11, .9); opacity: 0; transition: opacity .9s ease; }
+  #spot::before { content: ""; position: absolute; inset: -2vh -1.6vw 0; background: rgba(5, 6, 11, .9); opacity: 0; transition: opacity .9s ease; }
   #spot.on::before { opacity: 1; }
   .shot { position: relative; aspect-ratio: 8 / 3; border-radius: 10px; overflow: hidden; box-shadow: 0 30px 120px rgba(0, 0, 0, .8), 0 0 0 1px rgba(255, 255, 255, .06); opacity: 0; transform-origin: 0 0; }
   #spot.on .shot { opacity: 1; }
@@ -229,7 +230,7 @@
   const ranked = () => [...tiles.values()].filter((t) => t.settled && t.cd > 0).sort((a, b) => ld(b) - ld(a));
   // The task reports how much its lift swings; shedding vortices make it oscillate.
   const SHEDDING = 0.012;
-  const shedding = (t) => (t.swing ?? 0) > SHEDDING;
+  const shedding = (t) => t.settled && (t.swing ?? 0) > SHEDDING;
   const flow = (t) => shedding(t) ? "Stalled: the flow tears off the wing and sheds vortices"
     : t.angle >= 12 ? "High angle, flow still attached: a steady wake"
     : "Attached flow: a clean, steady wake";

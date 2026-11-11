@@ -112,12 +112,14 @@ const settle = Math.round((2 * W) / U0);
 const q = 0.5 * U0 * U0 * CHORD;
 let steps = 0, sumL = 0, sumD = 0, avgN = 0, lastFrame = 0, cl = 0, cd = 0;
 // How much the lift swings around its mean: vortex shedding makes it oscillate.
+// Measured from the moment the flow settles, so start-up waves don't count.
 let liftMean = 0, liftVar = 0;
 
 while (Date.now() < deadline) {
   const [fx, fy] = step();
   steps++;
   const inst = -fy / q;
+  if (steps === settle) { liftMean = inst; liftVar = 0; }
   liftMean += 0.002 * (inst - liftMean);
   liftVar += 0.002 * ((inst - liftMean) ** 2 - liftVar);
   if (steps > settle) {
@@ -164,7 +166,7 @@ async function upload(done) {
     return;
   }
   const meta = {
-    name: d.name, angle: d.angle, cl, cd, settled: steps > settle, steps, swing: Math.sqrt(Math.max(0, liftVar)),
+    name: d.name, angle: d.angle, cl, cd, settled: steps > settle, steps, swing: steps > settle + 2000 ? Math.sqrt(Math.max(0, liftVar)) : 0,
     started, deadline, done,
   };
   try {
